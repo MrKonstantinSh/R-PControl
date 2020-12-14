@@ -3,10 +3,23 @@
 #include "resource.h"
 
 constexpr auto WINDOW_NAME = "RPC-Inviter";
+constexpr auto WINDOW_WIDTH = 400;
+constexpr auto WINDOW_HEIGHT = 400;
 
 ATOM RegisterWindowClass(HINSTANCE);
 BOOL InitWindowInstance(HINSTANCE, int);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+
+RECT GetCenterWindow(HWND parentWindow, int windowWidth, int windowHeight)
+{
+    RECT rect;
+
+    GetClientRect(parentWindow, &rect);
+    rect.left = (rect.right / 2) - (windowWidth / 2);
+    rect.top = (rect.bottom / 2) - (windowHeight / 2);
+
+    return rect;
+}
 
 int APIENTRY WinMain(_In_ HINSTANCE hInstance, 
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -51,13 +64,15 @@ ATOM RegisterWindowClass(HINSTANCE hInstance)
 
 BOOL InitWindowInstance(HINSTANCE hInstance, int cmdShowMode)
 {
+    RECT windowPosition = GetCenterWindow(GetDesktopWindow(), WINDOW_WIDTH, WINDOW_HEIGHT);
+
     HWND hWnd = CreateWindow(WINDOW_NAME,
         WINDOW_NAME,
-        WS_OVERLAPPEDWINDOW, 
-        CW_USEDEFAULT,
-        CW_USEDEFAULT, 
-        CW_USEDEFAULT, 
-        CW_USEDEFAULT, 
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        windowPosition.left,
+        windowPosition.top, 
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT,
         NULL, 
         NULL, 
         hInstance,
