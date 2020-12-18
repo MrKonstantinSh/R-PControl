@@ -139,9 +139,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AX.cpp" />
     <ClCompile Include="Client.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AX.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>

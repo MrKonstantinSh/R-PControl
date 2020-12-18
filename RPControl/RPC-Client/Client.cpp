@@ -1,7 +1,12 @@
 #include <Windows.h>
+#include <fstream>
+#include <comdef.h>
 #include <RdpEncomAPI.h>
 
 #include "resource.h"
+#include "AX.h"
+
+using namespace std;
 
 #define override
 
@@ -11,19 +16,316 @@ constexpr auto WINDOW_HEIGHT = 720;
 
 constexpr auto MAX_NUM_ATTENDEES = 1;
 
-HWND _mainWindow;
-HWND _logTextBox;
-HWND _connectBtn;
-HWND _disconnectBtn;
-HWND _accessLevelCombobox;
+HWND h_mainWindow;
+HWND h_logTextBox;
+HWND h_connectBtn;
+HWND h_disconnectBtn;
+HWND h_accessLevelCombobox;
+HWND h_streamWindowWrapper;
+HWND h_streamWindow;
 
-char* accessLevelList[3] = { (char*)"CTRL_NONE", (char*)"CTRL_VIEW", (char*)"CTRL_INTERACTIVE" };
+IRDPSRAPIViewer* rdp_viewer = NULL;
+IRDPSRAPIInvitationManager* rdp_invitationManager = NULL;
+IRDPSRAPIInvitation* rdp_invitation = NULL;
+IRDPSRAPIAttendeeManager* rdp_attendeeManager = NULL;
+IRDPSRAPIAttendee* rdp_attendee = NULL;
+
+IConnectionPointContainer* conn_picpc = NULL;
+IConnectionPoint* conn_picp = NULL;
+
+int _connectionId = NULL;
+char* _accessLevelList[3] = { (char*)"DO NOT SHOW", (char*)"VIEW SCREEN", (char*)"PC CONTROL" };
 
 ATOM RegisterWindowClass(HINSTANCE);
 BOOL InitWindowInstance(HINSTANCE, int);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
-void PrintTextToLog(HWND log, LPCTSTR text);
+void PrintTextToLog(HWND, LPCTSTR);
+
+void OnConnectionFailed();
+void OnConnectionEstablished();
+int ConnectEvent(IUnknown*, REFIID, IUnknown*,
+    IConnectionPointContainer**, IConnectionPoint**);
+void DisconnectEvent(IConnectionPointContainer*, IConnectionPoint*, unsigned int);
+BOOL TryConnect();
+void TryDisconnect();
+
+class RDPSessionEvents : public _IRDPSessionEvents
+{
+public:
+    /*
+      Queries a COM object for a pointer to one of its interface;
+      identifying the interface by a reference to its interface identifier (IID).
+      If the COM object implements the interface,
+      then it returns a pointer to that interface after calling IUnknown::AddRef on it.
+    */
+    virtual HRESULT STDMETHODCALLTYPE override QueryInterface(
+        REFIID iid,
+        void** ppvObject)
+    {
+        *ppvObject = 0;
+
+        if (iid == IID_IUnknown || iid == IID_IDispatch || iid == __uuidof(_IRDPSessionEvents))
+            *ppvObject = this;
+
+        if (*ppvObject)
+        {
+            ((IUnknown*)(*ppvObject))->AddRef();
+
+            return S_OK;
+        }
+
+        return E_NOINTERFACE;
+    }
+
+    virtual ULONG STDMETHODCALLTYPE override AddRef(void)
+    {
+        return 0;
+    }
+
+    virtual ULONG STDMETHODCALLTYPE override Release(void)
+    {
+        return 0;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE override GetTypeInfoCount(
+        __RPC__out UINT* pctinfo)
+    {
+        return E_NOTIMPL;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE override GetTypeInfo(
+        UINT iTInfo,
+        LCID lcid,
+        __RPC__deref_out_opt ITypeInfo** ppTInfo)
+    {
+        return E_NOTIMPL;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE override GetIDsOfNames(
+        __RPC__in REFIID riid,
+        __RPC__in_ecount_full(cNames) LPOLESTR* rgszNames,
+        UINT cNames,
+        LCID lcid,
+        __RPC__out_ecount_full(cNames) DISPID* rgDispId)
+    {
+        return E_NOTIMPL;
+    }
+
+    // Provides access to properties and methods exposed by an object.
+    virtual HRESULT STDMETHODCALLTYPE override Invoke(
+        DISPID dispIdMember,
+        REFIID riid,
+        LCID lcid,
+        WORD wFlags,
+        DISPPARAMS FAR* pDispParams,
+        VARIANT FAR* pVarResult,
+        EXCEPINFO FAR* pExcepInfo,
+        unsigned int FAR* puArgErr)
+    {
+        switch (dispIdMember) 
+        {
+        case DISPID_RDPSRAPI_EVENT_ON_VIEWER_CONNECTFAILED:
+            OnConnectionFailed();
+            break;
+        case DISPID_RDPSRAPI_EVENT_ON_VIEWER_CONNECTED:
+            OnConnectionEstablished();
+            break;
+        }
+
+        return S_OK;
+    }
+};
+
+RDPSessionEvents rdpEvents;
+
+void OnConnectionFailed()
+{
+    PrintTextToLog(h_logTextBox, "Connection failed!\r\n");
+    TryDisconnect();
+}
+
+void OnConnectionEstablished() 
+{
+    PrintTextToLog(h_logTextBox, "Connection successful!\r\n\r\n");
+}
+
+char* SelectInvitationFile() 
+{
+    OPENFILENAME openFileName;
+
+    char* fileName = new char[100];
+
+    ZeroMemory(&openFileName, sizeof(openFileName));
+
+    openFileName.lStructSize = sizeof(openFileName);
+    openFileName.hwndOwner = h_mainWindow;
+    openFileName.lpstrFile = fileName;
+    openFileName.lpstrFile[0] = 0;
+    openFileName.nMaxFile = sizeof(openFileName);
+    openFileName.lpstrFilter = "XML\0*.xml\0";
+    openFileName.nFilterIndex = 1;
+    openFileName.lpstrFileTitle = 0;
+    openFileName.nMaxFileTitle = 0;
+    openFileName.lpstrInitialDir = 0;
+    openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileName(&openFileName))
+        return fileName;
+
+    return NULL;
+}
+
+BOOL IsInvitationFileExist(char* fileName)
+{
+    ifstream file;
+    file.open(fileName);
+
+    if (!file)
+        return FALSE;
+
+    return TRUE;
+}
+
+BOOL TryConnect() 
+{
+    char* invitationFile = SelectInvitationFile();
+
+    if (invitationFile) 
+    {
+        if (IsInvitationFileExist(invitationFile))
+        {
+            PrintTextToLog(h_logTextBox, "The existence of the invitation file has been verified!\r\n");
+
+            if (rdp_viewer == NULL) 
+            {
+                // Creates and default-initializes a single object of the class associated with a specified CLSID (RDPSession).
+                HRESULT resOfCreatingInstance = CoCreateInstance(
+                    __uuidof(RDPViewer),        // CLSID.
+                    NULL,                       // Indicates that the object is not being created as part of an aggregate.
+                    CLSCTX_INPROC_SERVER,       // Context in which the code that manages the newly created object will run.
+                    __uuidof(IRDPSRAPIViewer),  // A reference to the id of the interface to be used to communicate with the object.
+                    (void**)&rdp_viewer);           // Address of pointer variable that receives the interface pointer requested in riid.
+
+                if (resOfCreatingInstance == S_OK)
+                {
+                    PrintTextToLog(h_logTextBox, "Instance created!\r\n");
+
+                    _connectionId = ConnectEvent((IUnknown*)rdp_viewer, __uuidof(_IRDPSessionEvents),
+                        (IUnknown*)&rdpEvents, &conn_picpc, &conn_picp);
+
+                    PrintTextToLog(h_logTextBox, "Reading invitation file!\r\n");
+                    
+                    ifstream fileStream(invitationFile);
+
+                    if (fileStream.is_open())
+                    {
+                        char inviteString[2000];
+                        ZeroMemory(inviteString, sizeof(inviteString));
+                       
+                        fileStream.getline(inviteString, 2000);
+                        
+                        fileStream.close();
+
+                        if (rdp_viewer->Connect(_bstr_t(inviteString), SysAllocString(L"R-PControl"), SysAllocString(L"")) == S_OK)
+                        {
+                            PrintTextToLog(h_logTextBox, "Connection line active!\r\n");
+
+                            return TRUE;
+                        }
+                        else {
+                            PrintTextToLog(h_logTextBox, "Connection line error!\r\n");
+
+                            return FALSE;
+                        }
+                    }
+                    else 
+                    {
+                        PrintTextToLog(h_logTextBox, "Error reading invitation!\r\n");
+
+                        return FALSE;
+                    }
+                }
+                else 
+                {
+                    PrintTextToLog(h_logTextBox, "Error creating instance!\r\n");
+
+                    return FALSE;
+                }
+            }
+            else 
+            {
+                PrintTextToLog(h_logTextBox, "Error starting: Session already exists!\r\n");
+
+                return FALSE;
+            }
+        }
+        else 
+        {
+            PrintTextToLog(h_logTextBox, "Invalid invitation file!\r\n");
+
+            return FALSE;
+        }
+    }
+    else 
+    {
+        PrintTextToLog(h_logTextBox, "Error: An invitation file must be selected!\r\n");
+
+        return FALSE;
+    }
+}
+
+void TryDisconnect() 
+{
+    PrintTextToLog(h_logTextBox, "\r\nDisconnecting...\r\n");
+
+    if (rdp_viewer) 
+    {
+        DisconnectEvent(conn_picpc, conn_picp, _connectionId);
+        rdp_viewer->Disconnect();
+        rdp_viewer->Release();
+        rdp_viewer = NULL;
+
+        PrintTextToLog(h_logTextBox, "Disconnected!\r\n");
+    }
+    else
+        PrintTextToLog(h_logTextBox, "Error disconnecting: No active connection!\r\n");
+}
+
+int ConnectEvent(IUnknown* Container, REFIID riid, IUnknown* Advisor,
+    IConnectionPointContainer** picpc, IConnectionPoint** picp)
+{
+    HRESULT hr = 0;
+    unsigned long tid = 0;
+    IConnectionPointContainer* icpc = 0;
+    IConnectionPoint* icp = 0;
+    *picpc = 0;
+    *picp = 0;
+
+    Container->QueryInterface(IID_IConnectionPointContainer, (void**)&icpc);
+
+    if (icpc)
+    {
+        *picpc = icpc;
+        icpc->FindConnectionPoint(riid, &icp);
+        if (icp)
+        {
+            *picp = icp;
+            hr = icp->Advise(Advisor, &tid);
+            //icp->Release();
+        }
+        //icpc->Release();
+    }
+
+    return tid;
+}
+
+void DisconnectEvent(IConnectionPointContainer* icpc, IConnectionPoint* icp, unsigned int connectionId)
+{
+    icp->Unadvise(connectionId);
+    icp->Release();
+    icpc->Release();
+}
 
 RECT GetCenterWindow(HWND parentWindow, int windowWidth, int windowHeight)
 {
@@ -73,13 +375,39 @@ HWND RenderCombobox(HWND hWnd, int x, int y, int width, int height)
 
     for (int i = 0; i < 3; i++)
     {
-        SendMessage(combobox, CB_ADDSTRING, NULL, (LPARAM)accessLevelList[i]);
+        SendMessage(combobox, CB_ADDSTRING, NULL, (LPARAM)_accessLevelList[i]);
     }
 
    SendMessage(combobox, CB_SETCURSEL, 1, 0);
    SendMessage(combobox, EM_SETREADONLY, TRUE, NULL);
 
     return combobox;
+}
+
+HWND RenderStreamWindowWrapper(HWND hWnd, int x, int y, int width, int height)
+{
+    HWND view = CreateWindow("edit", NULL,
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        x, y, width, height,
+        hWnd, NULL, NULL, NULL);
+
+    SendMessage(view, EM_SETREADONLY, TRUE, NULL);
+
+    return view;
+}
+
+HWND RenderStreamWindow(HWND hWnd) {
+
+    HWND streamWindow = CreateWindow("AX", "}32be5ed2-5c86-480f-a914-0ff8885a1b3f}", WS_CHILD | WS_VISIBLE,
+        0, 0, 1, 1,
+        hWnd, NULL, NULL, NULL);
+
+    SendMessage(streamWindow, AX_RECREATE, 0, (LPARAM)rdp_viewer);
+    SendMessage(streamWindow, AX_INPLACE, 1, 0);
+
+    ShowWindow(streamWindow, SW_MAXIMIZE);
+
+    return streamWindow;
 }
 
 void PrintTextToLog(HWND log, LPCTSTR text)
@@ -95,6 +423,8 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance,
     _In_ int cmdShowMode)
 {
     MSG msg;
+
+    AXRegister();
 
     RegisterWindowClass(hInstance);
 
@@ -146,7 +476,7 @@ BOOL InitWindowInstance(HINSTANCE hInstance, int cmdShowMode)
         hInstance,
         NULL);
 
-    _mainWindow = hWnd;
+    h_mainWindow = hWnd;
 
     if (!hWnd)
         return FALSE;
@@ -161,35 +491,96 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
-        _connectBtn = RenderButton(hWnd, "Connect", 10, 5, 177, 30);
-        _disconnectBtn = RenderButton(hWnd, "Disconnect", 197, 5, 177, 30);
+    {
+        h_connectBtn = RenderButton(hWnd, "Connect", 10, 5, 177, 30);
+        h_disconnectBtn = RenderButton(hWnd, "Disconnect", 197, 5, 177, 30);
 
         RenderLabel(hWnd, "Access level:", 10, 45, 90, 18);
-        _accessLevelCombobox = RenderCombobox(hWnd, 10, 67, 365, 75);
+        h_accessLevelCombobox = RenderCombobox(hWnd, 10, 67, 365, 75);
 
         RenderLabel(hWnd, "Log:", 10, 97, 30, 18);
-        _logTextBox = RenderTextBox(hWnd, NULL, TRUE, 10, 119, 365, 550);
+        h_logTextBox = RenderTextBox(hWnd, NULL, TRUE, 10, 119, 365, 550);
 
-        EnableWindow(_disconnectBtn, FALSE);
-        EnableWindow(_accessLevelCombobox, FALSE);
+        RECT windowInfo;
+        GetClientRect(hWnd, &windowInfo);
+
+        int width = windowInfo.right;
+        int height = windowInfo.bottom;
+        h_streamWindowWrapper = RenderStreamWindowWrapper(hWnd, 400, 5, width - 410, height - 15);
+
+        EnableWindow(h_disconnectBtn, FALSE);
+        EnableWindow(h_accessLevelCombobox, FALSE);
+
         break;
+    }
     case WM_COMMAND:
-        if ((HWND)lParam == _connectBtn)
+        if ((HWND)lParam == h_connectBtn)
         {
-            EnableWindow(_connectBtn, FALSE);
-            EnableWindow(_disconnectBtn, TRUE);
-            EnableWindow(_accessLevelCombobox, TRUE);
+            EnableWindow(h_connectBtn, FALSE);
+            EnableWindow(h_disconnectBtn, TRUE);
+            EnableWindow(h_accessLevelCombobox, TRUE);
+
+            if (TryConnect())
+            {
+                h_streamWindow = RenderStreamWindow(h_streamWindowWrapper);
+            }
         }
-        if ((HWND)lParam == _disconnectBtn)
+        if ((HWND)lParam == h_disconnectBtn)
         {
-            EnableWindow(_connectBtn, TRUE);
-            EnableWindow(_disconnectBtn, FALSE);
-            EnableWindow(_accessLevelCombobox, FALSE);
-            SendMessage(_accessLevelCombobox, CB_SETCURSEL, 1, 0);
+            TryDisconnect();
+
+            EnableWindow(h_connectBtn, TRUE);
+            EnableWindow(h_disconnectBtn, FALSE);
+            EnableWindow(h_accessLevelCombobox, FALSE);
+            SendMessage(h_accessLevelCombobox, CB_SETCURSEL, 1, 0);
+        }
+        if ((HWND)lParam == h_accessLevelCombobox) 
+        {
+            if (HIWORD(wParam) == CBN_SELCHANGE)
+            {
+                int index = SendMessage(h_accessLevelCombobox, CB_GETCURSEL, 0, 0);
+
+                switch (index) 
+                {
+                case 0:
+                    if (rdp_viewer->RequestControl(CTRL_LEVEL_NONE) == S_OK) 
+                    {
+                        PrintTextToLog(h_logTextBox, "Access level changed to \"DO NOT SHOW\"!\r\n");
+                        ShowWindow(h_streamWindow, SW_HIDE);
+                    }
+                    else
+                        PrintTextToLog(h_logTextBox, "Error requesting access level!\r\n");
+                    break;
+                case 1:
+                    if (rdp_viewer->RequestControl(CTRL_LEVEL_VIEW) == S_OK)
+                    {
+                        PrintTextToLog(h_logTextBox, "Access level changed to \"VIEW SCREEN\"!\r\n");
+                        ShowWindow(h_streamWindow, SW_MAXIMIZE);
+                    }
+                    else
+                        PrintTextToLog(h_logTextBox, "Error requesting access level!\r\n");
+                    break;
+                case 2:
+                    if (rdp_viewer->RequestControl(CTRL_LEVEL_INTERACTIVE) == S_OK)
+                    {
+                        PrintTextToLog(h_logTextBox, "Access level changed to \"PC CONTROL\"!\r\n");
+                        ShowWindow(h_streamWindow, SW_MAXIMIZE);
+                    }
+                    else
+                        PrintTextToLog(h_logTextBox, "Error requesting access level!\r\n");
+                    break;
+                }
+            }
         }
         break;
     case WM_CTLCOLORSTATIC:
         return (INT_PTR)CreateSolidBrush(RGB(255, 255, 255));
+    case WM_CLOSE:
+        TryDisconnect();
+   
+        DestroyWindow(h_streamWindowWrapper);
+        DestroyWindow(hWnd);
+        break;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
