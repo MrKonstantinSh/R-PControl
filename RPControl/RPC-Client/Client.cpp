@@ -150,6 +150,41 @@ void OnConnectionEstablished()
     PrintTextToLog(h_logTextBox, "Connection successful!\r\n\r\n");
 }
 
+int ConnectEvent(IUnknown* Container, REFIID riid, IUnknown* Advisor,
+    IConnectionPointContainer** picpc, IConnectionPoint** picp)
+{
+    HRESULT hr = 0;
+    unsigned long tid = 0;
+    IConnectionPointContainer* icpc = 0;
+    IConnectionPoint* icp = 0;
+    *picpc = 0;
+    *picp = 0;
+
+    Container->QueryInterface(IID_IConnectionPointContainer, (void**)&icpc);
+
+    if (icpc)
+    {
+        *picpc = icpc;
+        icpc->FindConnectionPoint(riid, &icp);
+        if (icp)
+        {
+            *picp = icp;
+            hr = icp->Advise(Advisor, &tid);
+            //icp->Release();
+        }
+        //icpc->Release();
+    }
+
+    return tid;
+}
+
+void DisconnectEvent(IConnectionPointContainer* icpc, IConnectionPoint* icp, unsigned int connectionId)
+{
+    icp->Unadvise(connectionId);
+    icp->Release();
+    icpc->Release();
+}
+
 char* SelectInvitationFile() 
 {
     OPENFILENAME openFileName;
@@ -205,7 +240,7 @@ BOOL TryConnect()
                     NULL,                       // Indicates that the object is not being created as part of an aggregate.
                     CLSCTX_INPROC_SERVER,       // Context in which the code that manages the newly created object will run.
                     __uuidof(IRDPSRAPIViewer),  // A reference to the id of the interface to be used to communicate with the object.
-                    (void**)&rdp_viewer);           // Address of pointer variable that receives the interface pointer requested in riid.
+                    (void**)&rdp_viewer);       // Address of pointer variable that receives the interface pointer requested in riid.
 
                 if (resOfCreatingInstance == S_OK)
                 {
@@ -220,14 +255,14 @@ BOOL TryConnect()
 
                     if (fileStream.is_open())
                     {
-                        char inviteString[2000];
-                        ZeroMemory(inviteString, sizeof(inviteString));
+                        char invitationString[2000];
+                        ZeroMemory(invitationString, sizeof(invitationString));
                        
-                        fileStream.getline(inviteString, 2000);
+                        fileStream.getline(invitationString, 2000);
                         
                         fileStream.close();
 
-                        if (rdp_viewer->Connect(_bstr_t(inviteString), SysAllocString(L"R-PControl"), SysAllocString(L"")) == S_OK)
+                        if (rdp_viewer->Connect(_bstr_t(invitationString), SysAllocString(L"R-PControl"), SysAllocString(L"")) == S_OK)
                         {
                             PrintTextToLog(h_logTextBox, "Connection line active!\r\n");
 
@@ -290,41 +325,6 @@ void TryDisconnect()
     }
     else
         PrintTextToLog(h_logTextBox, "Error disconnecting: No active connection!\r\n");
-}
-
-int ConnectEvent(IUnknown* Container, REFIID riid, IUnknown* Advisor,
-    IConnectionPointContainer** picpc, IConnectionPoint** picp)
-{
-    HRESULT hr = 0;
-    unsigned long tid = 0;
-    IConnectionPointContainer* icpc = 0;
-    IConnectionPoint* icp = 0;
-    *picpc = 0;
-    *picp = 0;
-
-    Container->QueryInterface(IID_IConnectionPointContainer, (void**)&icpc);
-
-    if (icpc)
-    {
-        *picpc = icpc;
-        icpc->FindConnectionPoint(riid, &icp);
-        if (icp)
-        {
-            *picp = icp;
-            hr = icp->Advise(Advisor, &tid);
-            //icp->Release();
-        }
-        //icpc->Release();
-    }
-
-    return tid;
-}
-
-void DisconnectEvent(IConnectionPointContainer* icpc, IConnectionPoint* icp, unsigned int connectionId)
-{
-    icp->Unadvise(connectionId);
-    icp->Release();
-    icpc->Release();
 }
 
 RECT GetCenterWindow(HWND parentWindow, int windowWidth, int windowHeight)

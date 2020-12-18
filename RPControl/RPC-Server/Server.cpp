@@ -15,19 +15,19 @@ constexpr auto WINDOW_HEIGHT = 400;
 
 constexpr auto MAX_NUM_ATTENDEES = 1;
 
-HWND _mainWindow;
-HWND _logTextBox;
-HWND _startSharingBtn;
-HWND _stopSharingBtn;
+HWND h_mainWindow;
+HWND h_logTextBox;
+HWND h_startSharingBtn;
+HWND h_stopSharingBtn;
 
-IRDPSRAPISharingSession* session = NULL;
-IRDPSRAPIInvitationManager* invitationManager = NULL;
-IRDPSRAPIInvitation* invitation = NULL;
-IRDPSRAPIAttendeeManager* attendeeManager = NULL;
-IRDPSRAPIAttendee* attendee = NULL;
+IRDPSRAPISharingSession* rdp_session = NULL;
+IRDPSRAPIInvitationManager* rdp_invitationManager = NULL;
+IRDPSRAPIInvitation* rdp_invitation = NULL;
+IRDPSRAPIAttendeeManager* rdp_attendeeManager = NULL;
+IRDPSRAPIAttendee* rdp_attendee = NULL;
 
-IConnectionPointContainer* picpc = NULL;
-IConnectionPoint* picp = NULL;
+IConnectionPointContainer* conn_picpc = NULL;
+IConnectionPoint* conn_picp = NULL;
 
 ATOM RegisterWindowClass(HINSTANCE);
 BOOL InitWindowInstance(HINSTANCE, int);
@@ -141,7 +141,7 @@ void OnAttendeeConnected(IDispatch* pAttendee)
     pRDPAtendee->put_ControlLevel(CTRL_LEVEL::CTRL_LEVEL_VIEW);
     pAttendee->Release();
 
-    PrintTextToLog(_logTextBox, "An attendee connected!\r\n");
+    PrintTextToLog(h_logTextBox, "An attendee connected!\r\n");
 }
 
 void OnAttendeeDisconnected(IDispatch* pAttendee)
@@ -171,11 +171,11 @@ void OnAttendeeDisconnected(IDispatch* pAttendee)
             break;
         }
 
-        PrintTextToLog(_logTextBox, textReason);
+        PrintTextToLog(h_logTextBox, textReason);
 
         pAttendee->Release();
-        picp = 0;
-        picpc = 0;
+        conn_picp = 0;
+        conn_picpc = 0;
     }
 }
 
@@ -189,44 +189,18 @@ void OnControlLevelChangeRequest(IDispatch * pAttendee, CTRL_LEVEL RequestedLeve
         switch (RequestedLevel) 
         {
         case CTRL_LEVEL_NONE:
-            PrintTextToLog(_logTextBox, "Access level changed to \"DO NOT SHOW\"!\r\n");
+            PrintTextToLog(h_logTextBox, "Access level changed to \"DO NOT SHOW\"!\r\n");
             break;
         case CTRL_LEVEL_VIEW:
-            PrintTextToLog(_logTextBox, "Access level changed to \"VIEW SCREEN\"!\r\n");
+            PrintTextToLog(h_logTextBox, "Access level changed to \"VIEW SCREEN\"!\r\n");
             break;
         case CTRL_LEVEL_INTERACTIVE:
-            PrintTextToLog(_logTextBox, "Access level changed to \"PC CONTROL\"!\r\n");
+            PrintTextToLog(h_logTextBox, "Access level changed to \"PC CONTROL\"!\r\n");
             break;
         }
     }
 
     pAttendee->Release();
-}
-
-char* CreateInvitationFile() {
-    OPENFILENAME openFileName;
-
-    char* fileName = new char[100];
-
-    ZeroMemory(&openFileName, sizeof(openFileName));
-
-    openFileName.lStructSize = sizeof(openFileName);
-    openFileName.hwndOwner = _mainWindow;
-    openFileName.lpstrFile = fileName;
-    openFileName.lpstrFile[0] = 0;
-    openFileName.nMaxFile = sizeof(openFileName);
-    openFileName.nFilterIndex = 1;
-    openFileName.lpstrDefExt = "xml";
-    openFileName.lpstrFilter = "XML\0*.xml\0";
-    openFileName.lpstrFileTitle = 0;
-    openFileName.nMaxFileTitle = 0;
-    openFileName.lpstrInitialDir = 0;
-    openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-
-    if (GetSaveFileName(&openFileName))
-        return fileName;
-
-    return NULL;
 }
 
 int ConnectEvent(IUnknown* container, REFIID riid, IUnknown* advisor,
@@ -269,23 +243,34 @@ int ConnectEvent(IUnknown* container, REFIID riid, IUnknown* advisor,
     return tid;
 }
 
-void CloseSession() {
-    PrintTextToLog(_logTextBox, "\r\nSTOPPING...\r\n");
-    
-    if (session) 
-    {
-        session->Close();
-        session->Release();
-        session = NULL;
+char* CreateInvitationFile() {
+    OPENFILENAME openFileName;
 
-        PrintTextToLog(_logTextBox, "Session stopped!\r\n");
-    }
-    else
-        PrintTextToLog(_logTextBox, "Error stopping: No active session!\r\n");
+    char* fileName = new char[100];
+
+    ZeroMemory(&openFileName, sizeof(openFileName));
+
+    openFileName.lStructSize = sizeof(openFileName);
+    openFileName.hwndOwner = h_mainWindow;
+    openFileName.lpstrFile = fileName;
+    openFileName.lpstrFile[0] = 0;
+    openFileName.nMaxFile = sizeof(openFileName);
+    openFileName.nFilterIndex = 1;
+    openFileName.lpstrDefExt = "xml";
+    openFileName.lpstrFilter = "XML\0*.xml\0";
+    openFileName.lpstrFileTitle = 0;
+    openFileName.nMaxFileTitle = 0;
+    openFileName.lpstrInitialDir = 0;
+    openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetSaveFileName(&openFileName))
+        return fileName;
+
+    return NULL;
 }
 
 void StartServerInviter() {
-    if (session == NULL) 
+    if (rdp_session == NULL) 
     {
         // Creates and default-initializes a single object of the class associated with a specified CLSID (RDPSession).
         HRESULT resOfCreatingInstance = CoCreateInstance(
@@ -293,29 +278,29 @@ void StartServerInviter() {
             NULL,                               // Indicates that the object is not being created as part of an aggregate.
             CLSCTX_INPROC_SERVER,               // Context in which the code that manages the newly created object will run.
             __uuidof(IRDPSRAPISharingSession),  // A reference to the id of the interface to be used to communicate with the object.
-            (void**)&session);                  // Address of pointer variable that receives the interface pointer requested in riid.
+            (void**)&rdp_session);              // Address of pointer variable that receives the interface pointer requested in riid.
 
         if (resOfCreatingInstance == S_OK)
         {
-            PrintTextToLog(_logTextBox, "Instance created!\r\n");
-            ConnectEvent((IUnknown*)session, __uuidof(_IRDPSessionEvents), (IUnknown*)&rdpEvents, &picpc, &picp);
+            PrintTextToLog(h_logTextBox, "Instance created!\r\n");
+            ConnectEvent((IUnknown*)rdp_session, __uuidof(_IRDPSessionEvents), (IUnknown*)&rdpEvents, &conn_picpc, &conn_picp);
 
-            if (session->Open() == S_OK) 
+            if (rdp_session->Open() == S_OK) 
             {
-                PrintTextToLog(_logTextBox, "Session opened!\r\n");
+                PrintTextToLog(h_logTextBox, "Session opened!\r\n");
 
-                if (session->get_Invitations(&invitationManager) == S_OK) 
+                if (rdp_session->get_Invitations(&rdp_invitationManager) == S_OK) 
                 {
-                    HRESULT resOfCreatingInvitation = invitationManager->CreateInvitation(
+                    HRESULT resOfCreatingInvitation = rdp_invitationManager->CreateInvitation(
                         SysAllocString(L"R-PControl"),        // String to use for the authorization.
                         SysAllocString(L"R-PControl-Group"),  // The name of the group.
                         SysAllocString(L""),                  // Password to use for authentication.
                         MAX_NUM_ATTENDEES,                    // The maximum number of attendees.
-                        &invitation);                         // An IRDPSRAPIInvitation interface pointer.
+                        &rdp_invitation);                     // An IRDPSRAPIInvitation interface pointer.
 
                     if (resOfCreatingInvitation == S_OK)
                     {
-                        PrintTextToLog(_logTextBox, "Invitation obtained!\r\n");
+                        PrintTextToLog(h_logTextBox, "Invitation obtained!\r\n");
 
                         char* invitationFile = CreateInvitationFile();
 
@@ -328,39 +313,54 @@ void StartServerInviter() {
                             {
                                 BSTR invitationString;
 
-                                if (invitation->get_ConnectionString(&invitationString) == S_OK) 
+                                if (rdp_invitation->get_ConnectionString(&invitationString) == S_OK) 
                                 {
                                     fileStream << _bstr_t(invitationString, false);
                                     SysFreeString(invitationString);
 
-                                    PrintTextToLog(_logTextBox, "Invitation written to file!\r\n");
+                                    PrintTextToLog(h_logTextBox, "Invitation written to file!\r\n");
                                 }
 
                                 fileStream.close();
                             }
 
-                            if (session->get_Attendees(&attendeeManager) == S_OK) 
+                            if (rdp_session->get_Attendees(&rdp_attendeeManager) == S_OK) 
                             {
-                                PrintTextToLog(_logTextBox, "\r\nWAITING FOR ATTENDEES...\r\n");
+                                PrintTextToLog(h_logTextBox, "\r\nWAITING FOR ATTENDEES...\r\n");
                             }
                         }
                         else
-                            PrintTextToLog(_logTextBox, "Invalid path to save the file.!\r\n");
+                            PrintTextToLog(h_logTextBox, "Invalid path to save the file.!\r\n");
                     }
                     else
-                        PrintTextToLog(_logTextBox, "Error obtaining invitation!\r\n");
+                        PrintTextToLog(h_logTextBox, "Error obtaining invitation!\r\n");
                 }
                 else
-                    PrintTextToLog(_logTextBox, "Get invitations error!\r\n");
+                    PrintTextToLog(h_logTextBox, "Get invitations error!\r\n");
             }
             else
-                PrintTextToLog(_logTextBox, "Error opening session!\r\n");
+                PrintTextToLog(h_logTextBox, "Error opening session!\r\n");
         }
         else
-            PrintTextToLog(_logTextBox, "Error creating instance!\r\n");
+            PrintTextToLog(h_logTextBox, "Error creating instance!\r\n");
     }
     else
-        PrintTextToLog(_logTextBox, "Error starting: Session already exists!\r\n");
+        PrintTextToLog(h_logTextBox, "Error starting: Session already exists!\r\n");
+}
+
+void CloseSession() {
+    PrintTextToLog(h_logTextBox, "\r\nSTOPPING...\r\n");
+
+    if (rdp_session)
+    {
+        rdp_session->Close();
+        rdp_session->Release();
+        rdp_session = NULL;
+
+        PrintTextToLog(h_logTextBox, "Session stopped!\r\n");
+    }
+    else
+        PrintTextToLog(h_logTextBox, "Error stopping: No active session!\r\n");
 }
 
 RECT GetCenterWindow(HWND parentWindow, int windowWidth, int windowHeight)
@@ -466,7 +466,7 @@ BOOL InitWindowInstance(HINSTANCE hInstance, int cmdShowMode)
         hInstance,
         NULL);
 
-    _mainWindow = hWnd;
+    h_mainWindow = hWnd;
 
     if (!hWnd)
         return FALSE;
@@ -482,29 +482,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
         RenderLabel(hWnd, "Log:", 10, 5, 30, 18);
-        _logTextBox = RenderTextBox(hWnd, NULL, TRUE, 10, 28, 365, 280);
-        _startSharingBtn = RenderButton(hWnd, "Start sharing", 10, 320, 177, 30);
-        _stopSharingBtn = RenderButton(hWnd, "Stop sharing", 197, 320, 177, 30);
-        EnableWindow(_stopSharingBtn, FALSE);
+        h_logTextBox = RenderTextBox(hWnd, NULL, TRUE, 10, 28, 365, 280);
+        h_startSharingBtn = RenderButton(hWnd, "Start sharing", 10, 320, 177, 30);
+        h_stopSharingBtn = RenderButton(hWnd, "Stop sharing", 197, 320, 177, 30);
+        EnableWindow(h_stopSharingBtn, FALSE);
         break;
     case WM_COMMAND:
-        if ((HWND)lParam == _startSharingBtn) 
+        if ((HWND)lParam == h_startSharingBtn) 
         {
-            EnableWindow(_startSharingBtn, FALSE);
-            EnableWindow(_stopSharingBtn, TRUE);
+            EnableWindow(h_startSharingBtn, FALSE);
+            EnableWindow(h_stopSharingBtn, TRUE);
 
             StartServerInviter();
         }
-        if ((HWND)lParam == _stopSharingBtn)
+        if ((HWND)lParam == h_stopSharingBtn)
         {
-            EnableWindow(_startSharingBtn, TRUE);
-            EnableWindow(_stopSharingBtn, FALSE);
+            EnableWindow(h_startSharingBtn, TRUE);
+            EnableWindow(h_stopSharingBtn, FALSE);
 
             CloseSession();
         }
         break;
     case WM_CTLCOLORSTATIC:
         return (INT_PTR)CreateSolidBrush(RGB(255, 255, 255));
+    case WM_CLOSE:
+        DestroyWindow(hWnd);
+        break;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
