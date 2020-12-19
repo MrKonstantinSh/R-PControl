@@ -42,12 +42,6 @@ void OnControlLevelChangeRequest(IDispatch* pAttendee, CTRL_LEVEL RequestedLevel
 class RDPSessionEvents : public _IRDPSessionEvents 
 {
 public:
-    /*
-      Queries a COM object for a pointer to one of its interface;
-      identifying the interface by a reference to its interface identifier (IID).
-      If the COM object implements the interface,
-      then it returns a pointer to that interface after calling IUnknown::AddRef on it.
-    */
     virtual HRESULT STDMETHODCALLTYPE override QueryInterface(
         REFIID iid,
         void** ppvObject)
@@ -102,7 +96,6 @@ public:
         return E_NOTIMPL;
     }
 
-    // Provides access to properties and methods exposed by an object.
     virtual HRESULT STDMETHODCALLTYPE override Invoke(
         DISPID dispIdMember,
         REFIID riid,
@@ -213,29 +206,18 @@ int ConnectEvent(IUnknown* container, REFIID riid, IUnknown* advisor,
     *picpc = 0;
     *picp = 0;
 
-    /*
-        Queries a COM object for a pointer to one of its interface;
-        identifying the interface by a reference to its interface identifier (IID).
-        If the COM object implements the interface, 
-        then it returns a pointer to that interface after calling IUnknown::AddRef on it.
-    */ 
     container->QueryInterface(IID_IConnectionPointContainer, (void**)&icpc);
 
     if (icpc)
     {
         *picpc = icpc;
 
-        /*
-            Returns a pointer to the IConnectionPoint interface of a connection point for a specified IID,
-            if that IID describes a supported outgoing interface.
-        */
         icpc->FindConnectionPoint(riid, &icp);
 
         if (icp)
         {
             *picp = icp;
 
-            // Establishes a connection between a connection point object and the client's sink.
             hRes = icp->Advise(advisor, &tid);
         }
     }
@@ -253,7 +235,6 @@ char* CreateInvitationFile() {
     openFileName.lStructSize = sizeof(openFileName);
     openFileName.hwndOwner = h_mainWindow;
     openFileName.lpstrFile = fileName;
-    openFileName.lpstrFile[0] = 0;
     openFileName.nMaxFile = sizeof(openFileName);
     openFileName.nFilterIndex = 1;
     openFileName.lpstrDefExt = "xml";
@@ -272,13 +253,12 @@ char* CreateInvitationFile() {
 void StartServerInviter() {
     if (rdp_session == NULL) 
     {
-        // Creates and default-initializes a single object of the class associated with a specified CLSID (RDPSession).
         HRESULT resOfCreatingInstance = CoCreateInstance(
-            __uuidof(RDPSession),               // CLSID.
-            NULL,                               // Indicates that the object is not being created as part of an aggregate.
-            CLSCTX_INPROC_SERVER,               // Context in which the code that manages the newly created object will run.
-            __uuidof(IRDPSRAPISharingSession),  // A reference to the id of the interface to be used to communicate with the object.
-            (void**)&rdp_session);              // Address of pointer variable that receives the interface pointer requested in riid.
+            __uuidof(RDPSession),               
+            NULL,                               
+            CLSCTX_INPROC_SERVER,               
+            __uuidof(IRDPSRAPISharingSession),  
+            (void**)&rdp_session);              
 
         if (resOfCreatingInstance == S_OK)
         {
@@ -348,7 +328,8 @@ void StartServerInviter() {
         PrintTextToLog(h_logTextBox, "Error starting: Session already exists!\r\n");
 }
 
-void CloseSession() {
+void CloseSession() 
+{
     PrintTextToLog(h_logTextBox, "\r\nSTOPPING...\r\n");
 
     if (rdp_session)
@@ -395,7 +376,8 @@ HWND RenderTextBox(HWND hWnd, LPCTSTR text, BOOL isReadOnly, int x, int y, int w
     return log;
 }
 
-HWND RenderButton(HWND hWnd, LPCSTR text, int x, int y, int width, int height) {
+HWND RenderButton(HWND hWnd, LPCSTR text, int x, int y, int width, int height) 
+{
     return CreateWindow("button", text,
         WS_CHILD | WS_VISIBLE | BS_TEXT,
         x, y, width, height,

@@ -10,7 +10,7 @@ using namespace std;
 
 #define override
 
-constexpr auto WINDOW_NAME = "RPC-Inviter";
+constexpr auto WINDOW_NAME = "RPC-Client";
 constexpr auto WINDOW_WIDTH = 1280;
 constexpr auto WINDOW_HEIGHT = 720;
 
@@ -53,12 +53,6 @@ void TryDisconnect();
 class RDPSessionEvents : public _IRDPSessionEvents
 {
 public:
-    /*
-      Queries a COM object for a pointer to one of its interface;
-      identifying the interface by a reference to its interface identifier (IID).
-      If the COM object implements the interface,
-      then it returns a pointer to that interface after calling IUnknown::AddRef on it.
-    */
     virtual HRESULT STDMETHODCALLTYPE override QueryInterface(
         REFIID iid,
         void** ppvObject)
@@ -112,7 +106,6 @@ public:
         return E_NOTIMPL;
     }
 
-    // Provides access to properties and methods exposed by an object.
     virtual HRESULT STDMETHODCALLTYPE override Invoke(
         DISPID dispIdMember,
         REFIID riid,
@@ -170,9 +163,7 @@ int ConnectEvent(IUnknown* Container, REFIID riid, IUnknown* Advisor,
         {
             *picp = icp;
             hr = icp->Advise(Advisor, &tid);
-            //icp->Release();
         }
-        //icpc->Release();
     }
 
     return tid;
@@ -234,13 +225,12 @@ BOOL TryConnect()
 
             if (rdp_viewer == NULL) 
             {
-                // Creates and default-initializes a single object of the class associated with a specified CLSID (RDPSession).
                 HRESULT resOfCreatingInstance = CoCreateInstance(
-                    __uuidof(RDPViewer),        // CLSID.
-                    NULL,                       // Indicates that the object is not being created as part of an aggregate.
-                    CLSCTX_INPROC_SERVER,       // Context in which the code that manages the newly created object will run.
-                    __uuidof(IRDPSRAPIViewer),  // A reference to the id of the interface to be used to communicate with the object.
-                    (void**)&rdp_viewer);       // Address of pointer variable that receives the interface pointer requested in riid.
+                    __uuidof(RDPViewer),
+                    NULL,    
+                    CLSCTX_INPROC_SERVER,
+                    __uuidof(IRDPSRAPIViewer),
+                    (void**)&rdp_viewer);
 
                 if (resOfCreatingInstance == S_OK)
                 {
