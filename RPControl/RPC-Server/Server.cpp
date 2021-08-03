@@ -243,6 +243,7 @@ char* CreateInvitationFile() {
     openFileName.nMaxFileTitle = 0;
     openFileName.lpstrInitialDir = 0;
     openFileName.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    openFileName.lpstrFile[0] = '\0';
 
     if (GetSaveFileName(&openFileName))
         return fileName;
@@ -310,7 +311,7 @@ void StartServerInviter() {
                             }
                         }
                         else
-                            PrintTextToLog(h_logTextBox, "Invalid path to save the file.!\r\n");
+                            PrintTextToLog(h_logTextBox, "Invalid path to save the file!\r\n");
                     }
                     else
                         PrintTextToLog(h_logTextBox, "Error obtaining invitation!\r\n");
