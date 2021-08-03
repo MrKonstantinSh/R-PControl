@@ -19,9 +19,9 @@
     <br />    
     <br />
     <a href="https://github.com/MrKonstantinSh/R-PControl/releases">Releases</a>
-    ·
+    Â·
     <a href="https://github.com/MrKonstantinSh/R-PControl/issues">Report Bug</a>
-    ·
+    Â·
     <a href="https://github.com/MrKonstantinSh/R-PControl/issues">Request Feature</a>
   </p>
 </p>
@@ -56,6 +56,9 @@ Screenshots of a running application:
 * You can connect to a remote PC control session
 * You can view the screen of a remote PC in the "VIEW SCREEN" mode
 * You can control the remote PC with your computer mouse and keyboard in "PC CONTROL" mode
+
+**How to use:**
+You can read how to use the app on the [wiki](https://github.com/MrKonstantinSh/R-PControl/wiki/How-to-use) page.
 
 ### Built With
 * [Visual Studio 2019](https://visualstudio.microsoft.com/vs/)
@@ -105,7 +108,7 @@ Distributed under the MIT License. See [LICENSE](https://github.com/MrKonstantin
 <!-- CONTACT -->
 ## Contact
 
-Shulga Konstantin - mrkonstantinsh@gmail.com
+Konstantin Shulga - mrkonstantinsh@gmail.com
 
 Project Link: [https://github.com/MrKonstantinSh/R-PControl](https://github.com/MrKonstantinSh/R-PControl)
 
